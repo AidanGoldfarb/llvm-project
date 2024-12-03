@@ -2932,12 +2932,12 @@ NVPTXTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
     return LowerFROUND(Op, DAG);
   case ISD::FCOPYSIGN:
     return LowerFCOPYSIGN(Op, DAG);
-  case ISD::SINT_TO_FP:
-  case ISD::UINT_TO_FP:
-    return LowerINT_TO_FP(Op, DAG);
-  case ISD::FP_TO_SINT:
-  case ISD::FP_TO_UINT:
-    return LowerFP_TO_INT(Op, DAG);
+  case ISD::SINT_TO_FP: //to be removed
+  case ISD::UINT_TO_FP: //to be removed
+    return LowerINT_TO_FP(Op, DAG); //to be removed
+  case ISD::FP_TO_SINT: //to be removed
+  case ISD::FP_TO_UINT: //to be removed
+    return LowerFP_TO_INT(Op, DAG); //to be removed
   case ISD::FP_ROUND:
     return LowerFP_ROUND(Op, DAG);
   case ISD::FP_EXTEND:

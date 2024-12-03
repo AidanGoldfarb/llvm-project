@@ -118,6 +118,7 @@ private:
   void LegalizeLoadOps(SDNode *Node);
   void LegalizeStoreOps(SDNode *Node);
 
+
   SDValue ExpandINSERT_VECTOR_ELT(SDValue Op);
 
   /// Return a vector shuffle operation which
@@ -1000,7 +1001,7 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     break;
   case ISD::FP_TO_FP16:
   case ISD::FP_TO_BF16:
-  case ISD::SINT_TO_FP:
+  case ISD::SINT_TO_FP: 
   case ISD::UINT_TO_FP:
   case ISD::EXTRACT_VECTOR_ELT:
   case ISD::LROUND:
@@ -1313,36 +1314,47 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
       LLVM_DEBUG(dbgs() << "Trying custom legalization\n");
       // FIXME: The handling for custom lowering with multiple results is
       // a complete mess.
-      if (SDValue Res = TLI.LowerOperation(SDValue(Node, 0), DAG)) {
-        if (!(Res.getNode() != Node || Res.getResNo() != 0))
-          return;
+      switch(Node->getOpcode()){
+        case ISD::SINT_TO_FP: 
+        case ISD::UINT_TO_FP:
+          LegalizeNVPTXIntToFp(Node,DAG);
+          break;
+        case ISD::FP_TO_SINT:
+        case ISD::FP_TO_UINT:
+          LegalizeNVPTXFPToInt(Node,DAG);
+          break;
+        default:
+          if (SDValue Res = TLI.LowerOperation(SDValue(Node, 0), DAG)) {
+            if (!(Res.getNode() != Node || Res.getResNo() != 0))
+              return;
 
-        if (Node->getNumValues() == 1) {
-          // Verify the new types match the original. Glue is waived because
-          // ISD::ADDC can be legalized by replacing Glue with an integer type.
-          assert((Res.getValueType() == Node->getValueType(0) ||
-                  Node->getValueType(0) == MVT::Glue) &&
-                 "Type mismatch for custom legalized operation");
-          LLVM_DEBUG(dbgs() << "Successfully custom legalized node\n");
-          // We can just directly replace this node with the lowered value.
-          ReplaceNode(SDValue(Node, 0), Res);
-          return;
-        }
+            if (Node->getNumValues() == 1) {
+              // Verify the new types match the original. Glue is waived because
+              // ISD::ADDC can be legalized by replacing Glue with an integer type.
+              assert((Res.getValueType() == Node->getValueType(0) ||
+                      Node->getValueType(0) == MVT::Glue) &&
+                    "Type mismatch for custom legalized operation");
+              LLVM_DEBUG(dbgs() << "Successfully custom legalized node\n");
+              // We can just directly replace this node with the lowered value.
+              ReplaceNode(SDValue(Node, 0), Res);
+              return;
+            }
 
-        SmallVector<SDValue, 8> ResultVals;
-        for (unsigned i = 0, e = Node->getNumValues(); i != e; ++i) {
-          // Verify the new types match the original. Glue is waived because
-          // ISD::ADDC can be legalized by replacing Glue with an integer type.
-          assert((Res->getValueType(i) == Node->getValueType(i) ||
-                  Node->getValueType(i) == MVT::Glue) &&
-                 "Type mismatch for custom legalized operation");
-          ResultVals.push_back(Res.getValue(i));
-        }
-        LLVM_DEBUG(dbgs() << "Successfully custom legalized node\n");
-        ReplaceNode(Node, ResultVals.data());
-        return;
+            SmallVector<SDValue, 8> ResultVals;
+            for (unsigned i = 0, e = Node->getNumValues(); i != e; ++i) {
+              // Verify the new types match the original. Glue is waived because
+              // ISD::ADDC can be legalized by replacing Glue with an integer type.
+              assert((Res->getValueType(i) == Node->getValueType(i) ||
+                      Node->getValueType(i) == MVT::Glue) &&
+                    "Type mismatch for custom legalized operation");
+              ResultVals.push_back(Res.getValue(i));
+            }
+            LLVM_DEBUG(dbgs() << "Successfully custom legalized node\n");
+            ReplaceNode(Node, ResultVals.data());
+            return;
+          }
+          LLVM_DEBUG(dbgs() << "Could not custom legalize node\n");
       }
-      LLVM_DEBUG(dbgs() << "Could not custom legalize node\n");
       [[fallthrough]];
     case TargetLowering::Expand:
       if (ExpandNode(Node))
@@ -1373,6 +1385,34 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     return LegalizeLoadOps(Node);
   case ISD::STORE:
     return LegalizeStoreOps(Node);
+  }
+}
+
+void LegalizeNVPTXIntToFp(SDValue Op, SelectionDAG &DAG){
+  SDLoc Loc(Op);
+  EVT DestVT = Op.getValueType();
+  EVT SrcVT = Op.getOperand(0).getValueType();
+
+  if (DestVT == MVT::bf16) {
+    SDValue Tmp =
+        DAG.getNode(ISD::SINT_TO_FP, Loc, MVT::f32, Op.getOperand(0));
+    DAG.ReplaceAllUsesOfValueWith(Op, 
+        DAG.getNode(ISD::FP_ROUND, Loc, MVT::bf16, Tmp, DAG.getIntPtrConstant(0, Loc)));
+    return;
+  }
+}
+
+void LegalizeNVPTXFPToInt(SDValue Op, SelectionDAG &DAG){
+  SDLoc Loc(Op);
+  EVT DestVT = Op.getValueType();
+  EVT SrcVT = Op.getOperand(0).getValueType();
+
+  if (SrcVT == MVT::bf16) {
+    SDValue Tmp =
+        DAG.getNode(ISD::FP_EXTEND, Loc, MVT::f32, Op.getOperand(0));
+    DAG.ReplaceAllUsesOfValueWith(Op, 
+        DAG.getNode(ISD::FP_TO_SINT, Loc, DestVT, Tmp));
+    return;
   }
 }
 
